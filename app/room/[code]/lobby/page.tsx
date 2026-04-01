@@ -110,9 +110,9 @@ export default function LobbyPage() {
 
   const isAdmin = user?.uid === room?.adminUserId;
 
-  // AUTO-JOIN BOTS FOR PUBLIC ROOMS
+  // AUTO-JOIN BOTS FOR ALL ROOMS
   useEffect(() => {
-    if (!isAdmin || !room || !room.isPublic || starting) return;
+    if (!isAdmin || !room || starting) return;
     if (teams.length >= 10) return;
 
     // Pick a random time between 2 to 6 seconds for the next bot to join
@@ -140,7 +140,7 @@ export default function LobbyPage() {
     }, delay);
 
     return () => clearTimeout(timeoutId);
-  }, [isAdmin, room?.isPublic, room?.purseLakhs, starting, teams.length, code]);
+  }, [isAdmin, room?.purseLakhs, starting, teams.length, code]);
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column" }}>
@@ -215,11 +215,6 @@ export default function LobbyPage() {
                 style={{ fontSize: 18, padding: "18px 24px" }}>
                 {starting ? "Starting..." : teams.length < 2 ? `Need at least 2 teams (${teams.length}/2)` : `🚀 Start Auction! (${teams.length} teams)`}
               </button>
-              {teams.length < 10 && (
-                <button className="btn btn-outline btn-full" onClick={fillBots} disabled={starting}>
-                  🤖 Fill Room with Bots (to 10 Teams)
-                </button>
-              )}
             </div>
           ) : (
             <div className="card" style={{ padding: 20, textAlign: "center", color: "var(--text-muted)" }}>
