@@ -12,7 +12,7 @@ export interface Player {
   battingStyle: string;
   bowlingStyle: string;
   photoUrl?: string;
-  previousTeam?: string;
+  previousTeam?: string | null;
   isCapped: boolean;
 }
 
