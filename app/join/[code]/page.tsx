@@ -1,0 +1,128 @@
+"use client";
+import { useEffect, useState } from "react";
+import { useRouter, useParams } from "next/navigation";
+import { motion } from "framer-motion";
+import { getApps, initializeApp } from "firebase/app";
+import { getAuth, onAuthStateChanged, User } from "firebase/auth";
+import { getFirestore, doc, getDoc, setDoc, collection, Timestamp } from "firebase/firestore";
+import firebaseConfig from "@/lib/firebase/config";
+import { Room } from "@/lib/types";
+import { formatPurse } from "@/lib/utils";
+
+function getFirebase() {
+  if (typeof window === "undefined") return { auth: null, db: null };
+  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  return { auth: getAuth(app), db: getFirestore(app) };
+}
+
+export default function JoinRoomPage() {
+  const router = useRouter();
+  const params = useParams();
+  const code = (params?.code as string || "").toUpperCase();
+
+  const [user, setUser] = useState<User | null>(null);
+  const [room, setRoom] = useState<Room | null>(null);
+  const [teamName, setTeamName] = useState("");
+  const [error, setError] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const { auth, db } = getFirebase();
+    if (!auth || !db) return;
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) { router.push("/"); return; }
+      setUser(u);
+      // Prefill name
+      if (u.displayName) setTeamName(u.displayName.split(" ")[0] + "'s XI");
+      // Load room
+      const snap = await getDoc(doc(db, "rooms", code));
+      if (snap.exists()) {
+        setRoom({ id: snap.id, ...snap.data(), createdAt: snap.data().createdAt?.toDate() } as Room);
+      } else {
+        setError("Room not found. Check the code and try again.");
+      }
+      setLoading(false);
+    });
+    return unsub;
+  }, [router, code]);
+
+  async function handleJoin() {
+    if (!user || !room || joining) return;
+    if (!teamName.trim()) { setError("Enter a team name."); return; }
+    setJoining(true); setError("");
+    const { db } = getFirebase();
+    if (!db) return;
+    try {
+      const teamRef = doc(collection(db, "rooms", code, "teams"));
+      await setDoc(teamRef, {
+        roomId: code,
+        userId: user.uid,
+        teamName: teamName.trim().slice(0, 20),
+        purseRemaining: room.purseLakhs,
+        playersAcquired: [],
+        withdrawsRemaining: 4,
+        createdAt: Timestamp.now(),
+      });
+      router.push(`/room/${code}/lobby`);
+    } catch {
+      setError("Failed to join. Room may be full or already started.");
+      setJoining(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 40, height: 40, border: "4px solid var(--border)", borderTopColor: "var(--gold)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card" style={{ width: "100%", maxWidth: 480, padding: 40 }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <span style={{ fontSize: 48 }}>🎟️</span>
+          <h1 style={{ fontSize: 28, fontWeight: 800, marginTop: 12, marginBottom: 4 }}>Join Auction</h1>
+          <div className="font-mono" style={{ fontSize: 32, fontWeight: 900, color: "var(--gold)", letterSpacing: "0.15em" }}>{code}</div>
+        </div>
+
+        {room ? (
+          <>
+            {/* Room info */}
+            <div className="card-alt" style={{ padding: 16, marginBottom: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 13 }}>
+              <div style={{ color: "var(--text-muted)" }}>💰 Purse: <span style={{ color: "var(--text)", fontWeight: 700 }}>{formatPurse(room.purseLakhs)}</span></div>
+              <div style={{ color: "var(--text-muted)" }}>👥 Squad: <span style={{ color: "var(--text)", fontWeight: 700 }}>{room.squadSize} players</span></div>
+              <div style={{ color: "var(--text-muted)" }}>⏱ Timer: <span style={{ color: "var(--text)", fontWeight: 700 }}>{room.timerSeconds}s</span></div>
+              <div style={{ color: "var(--text-muted)" }}>Status: <span className={`badge ${room.status === "lobby" ? "badge-gold" : "badge-green"}`}>{room.status}</span></div>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 14, fontWeight: 600, display: "block", marginBottom: 8, color: "var(--text-muted)" }}>Your Team Name</label>
+              <input className="input" placeholder="e.g. Virat's Warriors" value={teamName}
+                onChange={e => setTeamName(e.target.value.slice(0, 20))}
+                onKeyDown={e => e.key === "Enter" && handleJoin()}
+                style={{ fontSize: 16, textAlign: "center" }} />
+              <p style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", marginTop: 6 }}>{teamName.length}/20 characters</p>
+            </div>
+
+            {error && <p style={{ color: "var(--danger)", fontSize: 14, marginBottom: 16, textAlign: "center" }}>{error}</p>}
+
+            <button className="btn btn-gold btn-lg btn-full" onClick={handleJoin} disabled={joining || !teamName.trim()}>
+              {joining ? "Joining..." : "Join Auction →"}
+            </button>
+            <button className="btn btn-ghost btn-full" onClick={() => router.push("/home")} style={{ marginTop: 12 }}>Back to Home</button>
+          </>
+        ) : (
+          <div style={{ textAlign: "center" }}>
+            <p style={{ color: "var(--danger)", marginBottom: 20 }}>{error}</p>
+            <button className="btn btn-outline btn-full" onClick={() => router.push("/home")}>Back to Home</button>
+          </div>
+        )}
+      </motion.div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
