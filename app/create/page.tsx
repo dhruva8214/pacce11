@@ -26,7 +26,6 @@ export default function CreateRoomPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [roomCode, setRoomCode] = useState("");
-  const [teamName, setTeamName] = useState("");
   const [purse, setPurse] = useState(10000);
   const [squadSize, setSquadSize] = useState(15);
   const [timer, setTimer] = useState(15);
@@ -80,7 +79,7 @@ export default function CreateRoomPage() {
   }
 
   async function handleCreate() {
-    if (!user || creating || !teamName.trim()) return;
+    if (!user || creating) return;
     setCreating(true);
     const { db } = getFirebase();
     if (!db) return;
@@ -102,17 +101,6 @@ export default function CreateRoomPage() {
       createdAt: Timestamp.now(),
     });
 
-    // Create the Admin's team
-    await addDoc(collection(db, "rooms", roomCode, "teams"), {
-      roomId: roomCode,
-      userId: user.uid,
-      teamName: teamName.trim(),
-      purseRemaining: purse,
-      playersAcquired: [],
-      withdrawsRemaining: 4,
-      createdAt: Timestamp.now()
-    });
-
     // Seed players if not done
     const playersSnap = await getDocs(collection(db, "players"));
     if (playersSnap.empty) {
@@ -121,7 +109,7 @@ export default function CreateRoomPage() {
       }
     }
 
-    router.push(`/room/${roomCode}/lobby`);
+    router.push(`/join/${roomCode}`);
   }
 
   return (
@@ -151,12 +139,6 @@ export default function CreateRoomPage() {
 
             {step === "settings" && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-                {/* Team Name */}
-                <div className="card" style={{ padding: 24 }}>
-                  <h3 style={{ fontWeight: 700, marginBottom: 16, fontSize: 15 }}>🏷️ My Team Name</h3>
-                  <input className="input" placeholder="e.g. Mumbai Mavericks" value={teamName} onChange={e => setTeamName(e.target.value)} style={{ width: "100%" }} />
-                </div>
-
                 {/* Purse */}
                 <div className="card" style={{ padding: 24 }}>
                   <h3 style={{ fontWeight: 700, marginBottom: 16, fontSize: 15 }}>💰 Starting Purse</h3>
@@ -218,7 +200,7 @@ export default function CreateRoomPage() {
                   </button>
                 </div>
 
-                <button className="btn btn-gold btn-lg btn-full" onClick={() => setStep("players")} disabled={!teamName.trim()}>
+                <button className="btn btn-gold btn-lg btn-full" onClick={() => setStep("players")}>
                   Next: Select Players →
                 </button>
               </motion.div>
