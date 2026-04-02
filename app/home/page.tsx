@@ -4,10 +4,13 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { getApps, initializeApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, signOut, User } from "firebase/auth";
-import { getFirestore, collection, query, where, orderBy, getDocs, doc, setDoc, Timestamp } from "firebase/firestore";
+import { getFirestore, collection, query, where, orderBy, getDocs, doc, setDoc, getDoc, Timestamp } from "firebase/firestore";
 import firebaseConfig from "@/lib/firebase/config";
 import { Room } from "@/lib/types";
-import { generateRoomCode, formatPurse } from "@/lib/utils";
+import { generateRoomCode, formatPurse, shuffleArray } from "@/lib/utils";
+import { IPL_PLAYERS } from "@/lib/firebase/players";
+
+const ALL_PLAYERS = IPL_PLAYERS.map((p, i) => ({ ...p, id: `player_${i + 1}` }));
 
 function getFirebase() {
   if (typeof window === "undefined") return { auth: null, db: null };
@@ -35,9 +38,35 @@ export default function HomePage() {
           // Public rooms
           const pubQ = query(collection(db, "rooms"), where("isPublic", "==", true), orderBy("createdAt", "desc"));
           const pubSnap = await getDocs(pubQ);
-          setPublicRooms(pubSnap.docs
+          let fetchedPublicRooms = pubSnap.docs
             .map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate() }) as Room)
-            .filter(r => r.status !== "completed").slice(0, 12));
+            .filter(r => r.status !== "completed").slice(0, 12);
+            
+          // Inject mock bot rooms to create perceived activity
+          if (fetchedPublicRooms.length < 6) {
+            const mocksNeeded = 6 - fetchedPublicRooms.length;
+            const mockRooms: Room[] = Array.from({length: mocksNeeded}).map((_, i) => {
+              const char = String.fromCharCode(65 + Math.floor(Math.random() * 26)); // A-Z
+              const code = `PUB${char}${Math.floor(Math.random()*900) + 100}`;
+              return {
+                id: code,
+                roomCode: code,
+                adminUserId: 'SYSTEM',
+                status: 'lobby',
+                purseLakhs: [5000, 10000, 20000][Math.floor(Math.random()*3)],
+                squadSize: [11, 15, 18][Math.floor(Math.random()*3)],
+                timerSeconds: [10, 15, 30][Math.floor(Math.random()*3)],
+                isPublic: true,
+                createdAt: new Date(),
+                playerQueue: [],
+                selectedPlayerIds: [],
+                currentPlayerIdx: 0,
+                playerOrder: "random"
+              };
+            });
+            fetchedPublicRooms = [...fetchedPublicRooms, ...mockRooms];
+          }
+          setPublicRooms(fetchedPublicRooms);
         } catch { /* index not yet created */ }
 
         try {
@@ -61,6 +90,50 @@ export default function HomePage() {
   async function handleCreateRoom() { router.push("/create"); }
   async function handleJoinRoom() {
     if (joinCode.trim().length === 6) router.push(`/join/${joinCode.trim().toUpperCase()}`);
+  }
+  
+  const [joiningRoomCode, setJoiningRoomCode] = useState("");
+  async function handleJoinPublicRoom(room: Room) {
+    if (room.adminUserId === 'SYSTEM') {
+      const { db } = getFirebase();
+      if (!db) return;
+      setJoiningRoomCode(room.roomCode); // Show immediate loading state if needed
+      try {
+        const roomRef = doc(db, "rooms", room.roomCode);
+        const snap = await getDoc(roomRef);
+        if (!snap.exists()) {
+          const playerIds = ALL_PLAYERS.map(p => p.id);
+          const playerQueue = shuffleArray([...playerIds]);
+          
+          await setDoc(roomRef, {
+            roomCode: room.roomCode,
+            adminUserId: 'SYSTEM',
+            status: "lobby",
+            purseLakhs: room.purseLakhs,
+            squadSize: room.squadSize,
+            timerSeconds: room.timerSeconds,
+            playerOrder: "random",
+            isPublic: true,
+            playerQueue,
+            selectedPlayerIds: playerIds,
+            currentPlayerIdx: 0,
+            createdAt: Timestamp.now(),
+          });
+          
+          const playersSnap = await getDocs(collection(db, "players"));
+          if (playersSnap.empty) {
+            for (const p of ALL_PLAYERS) {
+              await setDoc(doc(db, "players", p.id), p);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to materialize mock room:", err);
+      } finally {
+        setJoiningRoomCode("");
+      }
+    }
+    router.push(`/join/${room.roomCode}`);
   }
   async function handleSignOut() {
     const { auth } = getFirebase();
@@ -159,7 +232,7 @@ export default function HomePage() {
                   {publicRooms.map((room, i) => (
                     <motion.div key={room.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
                       className="card" style={{ padding: 20, cursor: "pointer" }}
-                      onClick={() => router.push(`/join/${room.roomCode}`)}>
+                      onClick={() => handleJoinPublicRoom(room)}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                         <span className="font-mono" style={{ fontSize: 20, fontWeight: 700, letterSpacing: "0.1em", color: "var(--gold)" }}>{room.roomCode}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -172,7 +245,9 @@ export default function HomePage() {
                         <div>👥 Size: <span style={{ color: "var(--text)", fontWeight: 600 }}>{room.squadSize} players</span></div>
                         <div>⏱ Timer: <span style={{ color: "var(--text)", fontWeight: 600 }}>{room.timerSeconds}s</span></div>
                       </div>
-                      <button className="btn btn-outline btn-sm btn-full" style={{ marginTop: 16 }}>Join Room →</button>
+                      <button className="btn btn-outline btn-sm btn-full" style={{ marginTop: 16 }} disabled={joiningRoomCode === room.roomCode}>
+                        {joiningRoomCode === room.roomCode ? "Loading..." : "Join Room →"}
+                      </button>
                     </motion.div>
                   ))}
                 </div>

@@ -20,7 +20,7 @@ Real-time multiplayer IPL fantasy cricket auction, built with **Next.js 14 + Fir
 ```bash
 npm run dev
 ```
-App runs at **http://localhost:3000**
+App runs at **https://pacce.in**
 
 ### 3. Deploy to Firebase Hosting
 ```bash
